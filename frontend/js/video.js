@@ -1,22 +1,21 @@
 /**
- * Upload Video controller — LIVE analysis (real-time in the browser).
+ * Upload Video controller — LIVE analysis (real-time in the browser) v2.
  *
- * Instead of uploading the whole file and waiting for the server to render a
- * processed copy, this plays the uploaded video IN THE BROWSER and analyses it
- * frame-by-frame LIVE — exactly like the webcam mode:
+ * Plays the uploaded video and analyses it frame-by-frame over /ws/live, draws
+ * a border around the hand, and builds the Arabic text + timeline live.
  *
- *   playing <video> → grab current frame → send over /ws/live (high quality)
- *                   → receive prediction → draw a border around the hand on an
- *                     overlay canvas + build the Arabic text + timeline, live.
- *
- * Benefits: real-time feel, hand tracking with a bounding box like images,
- * fully responsive, natural play / pause / seek / replay, and NO backend
- * changes (reuses the existing live WebSocket pipeline).
+ * v2 improvements:
+ *   * Adds accepted letters to Generated Text + Timeline reliably.
+ *   * Also shows a subtle "live guess" (the current smoothed letter) so the user
+ *     sees activity even before a letter is formally accepted.
+ *   * Slightly slower send cadence gives the (CPU) server time to analyse more
+ *     frames per sign, so the stabilizer reaches acceptance.
  */
 import { toast } from "./toast.js";
 
-const JPEG_QUALITY = 0.92;   // send clear frames so the model detects well
-const MAX_SEND_WIDTH = 640;  // cap width for bandwidth; server resizes to 416
+const JPEG_QUALITY = 0.92;
+const MAX_SEND_WIDTH = 640;
+const MIN_SEND_INTERVAL_MS = 90;   // throttle so we don't flood a slow server
 const CONF_COLORS = { high: "#34d399", med: "#fbbf24", low: "#fb5f74" };
 
 export class VideoMode {
@@ -27,10 +26,10 @@ export class VideoMode {
     this.busy = false;
     this.running = false;
     this.rafId = null;
+    this.lastSent = 0;
     this.text = "";
     this.timeline = [];
 
-    // Overlay canvas is created once, on top of the <video>.
     this.overlay = document.createElement("canvas");
     this.overlay.id = "videoOverlay";
     this.capture = document.createElement("canvas");
@@ -65,21 +64,16 @@ export class VideoMode {
   }
 
   _load(file) {
-    // Reset UI
     document.getElementById("videoDrop").hidden = true;
     this.stage.hidden = false;
     document.getElementById("videoControls").hidden = false;
     document.getElementById("videoProgressWrap").hidden = true;
     this._resetText();
 
-    // Attach overlay canvas above the video (once).
     if (!this.overlay.isConnected) this.stage.appendChild(this.overlay);
-
-    // Hide the "download processed" button (we analyse live now).
     const dl = document.getElementById("downloadVideo");
     if (dl) dl.style.display = "none";
 
-    // Load the file into the <video>.
     this.player.src = URL.createObjectURL(file);
     this.player.muted = true;
     this.player.playsInline = true;
@@ -116,7 +110,6 @@ export class VideoMode {
   _start() {
     if (this.running) return;
     this.running = true;
-    // Prefer per-video-frame callback for tight sync; fall back to a loop.
     if ("requestVideoFrameCallback" in HTMLVideoElement.prototype) {
       const cb = () => {
         if (!this.running) return;
@@ -125,7 +118,7 @@ export class VideoMode {
       };
       this.player.requestVideoFrameCallback(cb);
     } else {
-      this.rafId = setInterval(() => this._sendFrame(), 120);
+      this.rafId = setInterval(() => this._sendFrame(), MIN_SEND_INTERVAL_MS);
     }
   }
 
@@ -135,11 +128,14 @@ export class VideoMode {
   }
 
   _sendFrame() {
+    const nowMs = performance.now();
     if (this.busy || this.player.paused || this.player.ended) return;
+    if (nowMs - this.lastSent < MIN_SEND_INTERVAL_MS) return;
     if (this.ws?.readyState !== WebSocket.OPEN || !this.player.videoWidth) return;
     const cctx = this.capture.getContext("2d");
     cctx.drawImage(this.player, 0, 0, this.capture.width, this.capture.height);
     this.busy = true;
+    this.lastSent = nowMs;
     this.ws.send(JSON.stringify({ type: "frame", data: this.capture.toDataURL("image/jpeg", JPEG_QUALITY) }));
   }
 
@@ -148,11 +144,11 @@ export class VideoMode {
     if (msg.type !== "prediction") return;
     this.busy = false;
 
-    // Scale box coords (in capture space) up to overlay (native) space.
     const sx = this.overlay.width / this.capture.width;
     const sy = this.overlay.height / this.capture.height;
     this._draw(msg.best, sx, sy);
 
+    // Add accepted letters to the text + timeline.
     if (msg.stable?.accepted && msg.stable.accepted_glyph) {
       this.text += msg.stable.accepted_glyph;
       document.getElementById("videoText").textContent = this.text || "—";

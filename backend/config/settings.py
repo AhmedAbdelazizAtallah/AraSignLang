@@ -41,19 +41,20 @@ class Settings(BaseSettings):
     DEVICE: str = "auto"               # auto | cuda | cpu (torch backend only)
     HALF_PRECISION: bool = True
 
-    # How every frame is converted to 416x416 (live / video / image alike):
-    #   letterbox   -> keep aspect ratio + grey padding; NOTHING cropped (safest,
-    #                  recommended for the live camera).
-    #   center_crop -> crop centered square then resize (hand must be centred).
+    # letterbox (safest, no crop) | center_crop (hand must be centred)
     PREPROCESS_MODE: str = "letterbox"
 
     # ------------------------------------------------------ inference / stability
     CONF_THRESHOLD: float = 0.45       # min confidence to consider a detection
     IOU_THRESHOLD: float = 0.45
-    STABILITY_WINDOW: int = 8
-    STABILITY_MIN_VOTES: int = 5
-    ACCEPT_THRESHOLD: float = 0.65     # confidence needed to *type* a letter
-    COOLDOWN_SECONDS: float = 1.0
+    # Consecutive agreeing frames needed to ACCEPT (type) a letter. Kept small so
+    # it works even on slow CPUs (Render) where few frames are analysed per sign.
+    STABILITY_MIN_VOTES: int = 3
+    STABILITY_WINDOW: int = 8          # kept for backward-compat (unused in v2)
+    ACCEPT_THRESHOLD: float = 0.60     # confidence needed to *type* a letter
+    COOLDOWN_SECONDS: float = 0.8      # min time between two accepted letters
+    # Frames of "no/low detection" after which the SAME letter can be typed again.
+    REPEAT_RESET_FRAMES: int = 3
     MAX_HISTORY: int = 200
 
     # ---------------------------------------------------------------- uploads
