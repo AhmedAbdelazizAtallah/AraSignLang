@@ -1,0 +1,37 @@
+/* ============================================================
+   Live video analysis — overlay + responsive tweaks
+   أضف محتوى هذا الملف إلى نهاية frontend/css/style.css
+   (أو احتفظ به منفصلاً واربطه في index.html بعد style.css)
+   ============================================================ */
+
+/* الفيديو والكانفس يملآن مسرح العرض بنفس الأبعاد ليتطابق المربع مع اليد */
+#panel-video .stage {
+  position: relative;
+}
+#panel-video .stage video,
+#panel-video .stage #videoOverlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;      /* يحافظ على أبعاد الفيديو بلا قص → محاذاة دقيقة */
+  background: #05060d;
+}
+#panel-video .stage #videoOverlay {
+  pointer-events: none;      /* لا يعترض التحكم في الفيديو */
+}
+
+/* شريط زمني قابل للتمرير على الجوال */
+#panel-video .timeline {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* تجاوب أفضل على الشاشات الصغيرة */
+@media (max-width: 1000px) {
+  #panel-video .stage { aspect-ratio: 16 / 9; }
+}
+@media (max-width: 560px) {
+  #panel-video .result-text { font-size: 20px; }
+  #panel-video .tl-item { min-width: 54px; }
+}

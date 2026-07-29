@@ -1,20 +1,40 @@
 /**
- * Upload Video controller.
+ * Upload Video controller — LIVE analysis (real-time in the browser).
  *
- * Uploads the file (returns a job_id immediately), then polls the job for
- * progress until it's done, and finally renders the processed video, timeline
- * and generated text. This avoids the request "hanging" while a long video is
- * analysed on CPU.
+ * Instead of uploading the whole file and waiting for the server to render a
+ * processed copy, this plays the uploaded video IN THE BROWSER and analyses it
+ * frame-by-frame LIVE — exactly like the webcam mode:
+ *
+ *   playing <video> → grab current frame → send over /ws/live (high quality)
+ *                   → receive prediction → draw a border around the hand on an
+ *                     overlay canvas + build the Arabic text + timeline, live.
+ *
+ * Benefits: real-time feel, hand tracking with a bounding box like images,
+ * fully responsive, natural play / pause / seek / replay, and NO backend
+ * changes (reuses the existing live WebSocket pipeline).
  */
-import { api } from "./api.js";
 import { toast } from "./toast.js";
+
+const JPEG_QUALITY = 0.92;   // send clear frames so the model detects well
+const MAX_SEND_WIDTH = 640;  // cap width for bandwidth; server resizes to 416
+const CONF_COLORS = { high: "#34d399", med: "#fbbf24", low: "#fb5f74" };
 
 export class VideoMode {
   constructor() {
     this.player = document.getElementById("videoPlayer");
-    this.jobId = null;
-    this.fps = 25;
-    this._poll = null;
+    this.stage = document.getElementById("videoStage");
+    this.ws = null;
+    this.busy = false;
+    this.running = false;
+    this.rafId = null;
+    this.text = "";
+    this.timeline = [];
+
+    // Overlay canvas is created once, on top of the <video>.
+    this.overlay = document.createElement("canvas");
+    this.overlay.id = "videoOverlay";
+    this.capture = document.createElement("canvas");
+
     this._wire();
   }
 
@@ -28,88 +48,170 @@ export class VideoMode {
       drop.addEventListener(e, () => drop.classList.remove("drag")));
     drop.addEventListener("drop", (ev) => {
       ev.preventDefault();
-      if (ev.dataTransfer.files[0]) this._handle(ev.dataTransfer.files[0]);
+      if (ev.dataTransfer.files[0]) this._load(ev.dataTransfer.files[0]);
     });
-    input.addEventListener("change", () => { if (input.files[0]) this._handle(input.files[0]); });
+    input.addEventListener("change", () => { if (input.files[0]) this._load(input.files[0]); });
 
     document.querySelector('[data-vid="replay"]').addEventListener("click", () => {
-      this.player.currentTime = 0; this.player.play();
+      this._resetText();
+      this.player.currentTime = 0;
+      this.player.play();
     });
     document.getElementById("exportVideoText").addEventListener("click", () => {
-      const text = document.getElementById("videoText").textContent;
-      const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+      const blob = new Blob([this.text], { type: "text/plain;charset=utf-8" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob); a.download = "video_text.txt"; a.click();
     });
   }
 
-  async _handle(file) {
+  _load(file) {
+    // Reset UI
     document.getElementById("videoDrop").hidden = true;
-    const wrap = document.getElementById("videoProgressWrap");
-    wrap.hidden = false;
-    this._setProgress(0, "Uploading…");
+    this.stage.hidden = false;
+    document.getElementById("videoControls").hidden = false;
+    document.getElementById("videoProgressWrap").hidden = true;
+    this._resetText();
 
-    try {
-      // 1) Upload → get a job id immediately.
-      const { job_id } = await api.detectVideo(file);
-      this.jobId = job_id;
-      this._setProgress(0.02, "Analyzing… 0%");
+    // Attach overlay canvas above the video (once).
+    if (!this.overlay.isConnected) this.stage.appendChild(this.overlay);
 
-      // 2) Poll the job until it finishes (or errors).
-      this._poll = setInterval(async () => {
-        try {
-          const job = await api.videoProgress(this.jobId);
-          if (job.status === "processing" || job.status === "queued") {
-            this._setProgress(Math.max(0.02, job.progress), `Analyzing… ${(job.progress * 100) | 0}%`);
-          } else if (job.status === "done") {
-            clearInterval(this._poll);
-            this._setProgress(1, "Done");
-            setTimeout(() => (wrap.hidden = true), 700);
-            this._render(job.result);
-            toast.ok("Video analyzed");
-          } else if (job.status === "error") {
-            clearInterval(this._poll);
-            wrap.hidden = true;
-            document.getElementById("videoDrop").hidden = false;
-            toast.err("Video analysis failed");
-          }
-        } catch (_) {
-          clearInterval(this._poll);
-          wrap.hidden = true;
-          document.getElementById("videoDrop").hidden = false;
-          toast.err("Lost connection to job");
-        }
-      }, 800);
-    } catch (err) {
-      wrap.hidden = true;
-      document.getElementById("videoDrop").hidden = false;
-      toast.err("Upload failed (is the model loaded?)");
+    // Hide the "download processed" button (we analyse live now).
+    const dl = document.getElementById("downloadVideo");
+    if (dl) dl.style.display = "none";
+
+    // Load the file into the <video>.
+    this.player.src = URL.createObjectURL(file);
+    this.player.muted = true;
+    this.player.playsInline = true;
+    this.player.load();
+
+    this.player.addEventListener("loadeddata", () => this._sizeCanvases(), { once: true });
+    this.player.addEventListener("play", () => this._start());
+    this.player.addEventListener("pause", () => this._stopLoop());
+    this.player.addEventListener("ended", () => this._stopLoop());
+    this.player.addEventListener("seeked", () => this._clearOverlay());
+
+    this._connect();
+    this.player.play().catch(() => toast.info("اضغط تشغيل لبدء التحليل"));
+    toast.ok("جاري تحليل الفيديو مباشرةً…");
+  }
+
+  _sizeCanvases() {
+    const vw = this.player.videoWidth || 640;
+    const vh = this.player.videoHeight || 480;
+    this.overlay.width = vw;
+    this.overlay.height = vh;
+    const scale = Math.min(1, MAX_SEND_WIDTH / vw);
+    this.capture.width = Math.round(vw * scale);
+    this.capture.height = Math.round(vh * scale);
+  }
+
+  _connect() {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    this.ws = new WebSocket(`${proto}://${location.host}/ws/live`);
+    this.ws.onmessage = (ev) => this._onMessage(JSON.parse(ev.data));
+    this.ws.onerror = () => toast.err("تعذّر الاتصال بخادم التحليل");
+  }
+
+  _start() {
+    if (this.running) return;
+    this.running = true;
+    // Prefer per-video-frame callback for tight sync; fall back to a loop.
+    if ("requestVideoFrameCallback" in HTMLVideoElement.prototype) {
+      const cb = () => {
+        if (!this.running) return;
+        this._sendFrame();
+        this.player.requestVideoFrameCallback(cb);
+      };
+      this.player.requestVideoFrameCallback(cb);
+    } else {
+      this.rafId = setInterval(() => this._sendFrame(), 120);
     }
   }
 
-  _setProgress(p, text) {
-    document.getElementById("videoProgress").style.width = `${p * 100}%`;
-    document.getElementById("videoProgressText").textContent = text;
+  _stopLoop() {
+    this.running = false;
+    if (this.rafId) { clearInterval(this.rafId); this.rafId = null; }
   }
 
-  _render(result) {
-    this.fps = result.fps || 25;
-    document.getElementById("videoStage").hidden = false;
-    document.getElementById("videoControls").hidden = false;
-    this.player.src = result.output_url;
-    this.player.load();
-    document.getElementById("downloadVideo").href = result.output_url;
-    document.getElementById("videoText").textContent = result.generated_text || "—";
+  _sendFrame() {
+    if (this.busy || this.player.paused || this.player.ended) return;
+    if (this.ws?.readyState !== WebSocket.OPEN || !this.player.videoWidth) return;
+    const cctx = this.capture.getContext("2d");
+    cctx.drawImage(this.player, 0, 0, this.capture.width, this.capture.height);
+    this.busy = true;
+    this.ws.send(JSON.stringify({ type: "frame", data: this.capture.toDataURL("image/jpeg", JPEG_QUALITY) }));
+  }
 
+  _onMessage(msg) {
+    if (msg.type === "error") { toast.err(msg.message || "Model not available"); return; }
+    if (msg.type !== "prediction") return;
+    this.busy = false;
+
+    // Scale box coords (in capture space) up to overlay (native) space.
+    const sx = this.overlay.width / this.capture.width;
+    const sy = this.overlay.height / this.capture.height;
+    this._draw(msg.best, sx, sy);
+
+    if (msg.stable?.accepted && msg.stable.accepted_glyph) {
+      this.text += msg.stable.accepted_glyph;
+      document.getElementById("videoText").textContent = this.text || "—";
+      this._addTimeline(msg.stable.accepted_glyph, msg.stable.smoothed_conf);
+    }
+  }
+
+  _draw(best, sx, sy) {
+    const ctx = this.overlay.getContext("2d");
+    ctx.clearRect(0, 0, this.overlay.width, this.overlay.height);
+    if (!best) return;
+    let [x1, y1, x2, y2] = best.box;
+    x1 *= sx; x2 *= sx; y1 *= sy; y2 *= sy;
+    const conf = best.confidence;
+    const color = conf >= 0.85 ? CONF_COLORS.high : conf >= 0.65 ? CONF_COLORS.med : CONF_COLORS.low;
+
+    ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.shadowColor = color; ctx.shadowBlur = 20;
+    this._roundRect(ctx, x1, y1, x2 - x1, y2 - y1, 16);
+    ctx.stroke(); ctx.shadowBlur = 0;
+
+    const label = `حرف : ${best.glyph}   ${(conf * 100).toFixed(0)}%`;
+    ctx.font = "700 26px Cairo, sans-serif";
+    const tw = ctx.measureText(label).width + 24;
+    ctx.fillStyle = color;
+    this._roundRect(ctx, x1, Math.max(0, y1 - 42), tw, 36, 10);
+    ctx.fill();
+    ctx.fillStyle = "#06070f"; ctx.textBaseline = "middle";
+    ctx.fillText(label, x1 + 12, Math.max(18, y1 - 24));
+  }
+
+  _roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+
+  _addTimeline(glyph, conf) {
+    const ts = this.player.currentTime || 0;
+    this.timeline.push({ glyph, ts, conf });
     const tl = document.getElementById("timeline");
-    tl.innerHTML = "";
-    (result.timeline || []).forEach((t) => {
-      const item = document.createElement("div");
-      item.className = "tl-item";
-      item.innerHTML = `<span class="g">${t.glyph}</span><small>${t.timestamp_s.toFixed(1)}s</small><small>${(t.confidence * 100).toFixed(0)}%</small>`;
-      item.addEventListener("click", () => { this.player.currentTime = t.timestamp_s; this.player.play(); });
-      tl.appendChild(item);
-    });
-    if (!result.timeline?.length) tl.innerHTML = '<p class="muted">No letters detected.</p>';
+    const item = document.createElement("div");
+    item.className = "tl-item";
+    item.innerHTML = `<span class="g">${glyph}</span><small>${ts.toFixed(1)}s</small><small>${(conf * 100).toFixed(0)}%</small>`;
+    item.addEventListener("click", () => { this.player.currentTime = ts; this.player.play(); });
+    tl.appendChild(item);
+    tl.scrollTop = tl.scrollHeight;
+  }
+
+  _clearOverlay() {
+    const ctx = this.overlay.getContext("2d");
+    ctx.clearRect(0, 0, this.overlay.width, this.overlay.height);
+  }
+
+  _resetText() {
+    this.text = "";
+    this.timeline = [];
+    document.getElementById("videoText").textContent = "—";
+    const tl = document.getElementById("timeline");
+    if (tl) tl.innerHTML = "";
+    this._clearOverlay();
   }
 }
