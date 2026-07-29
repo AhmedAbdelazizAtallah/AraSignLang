@@ -1,0 +1,101 @@
+/* ============================================================
+   Auto-complete + TTS bar styles
+   أضف محتوى هذا الملف إلى نهاية frontend/css/style.css
+   ============================================================ */
+
+.ac-wrap {
+  margin-top: 16px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ac-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+.ac-label {
+  font-weight: 700;
+  color: #a78bfa;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.ac-label i { color: #22d3ee; }
+
+/* شريط الاقتراحات (chips) */
+.ac-chips { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; }
+
+.ac-chip {
+  font-family: "Cairo", sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  padding: 6px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(167, 139, 250, 0.35);
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.25), rgba(34, 211, 238, 0.15));
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.2s;
+}
+.ac-chip:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(124, 58, 237, 0.35);
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.45), rgba(34, 211, 238, 0.3));
+}
+.ac-chip:active { transform: translateY(0); }
+
+.ac-empty { color: #94a3b8; font-size: 14px; }
+
+/* صف التحكم: النص + الأزرار */
+.ac-controls { justify-content: space-between; }
+
+.ac-text {
+  font-family: "Cairo", sans-serif;
+  font-size: 26px;
+  font-weight: 800;
+  color: #e2e8f0;
+  flex: 1;
+  min-height: 40px;
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.ac-btns { display: flex; align-items: center; gap: 8px; }
+
+.ac-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(30, 41, 59, 0.7);
+  color: #e2e8f0;
+  cursor: pointer;
+  font-size: 16px;
+  transition: transform 0.12s ease, background 0.2s, color 0.2s;
+}
+.ac-btn:hover { transform: translateY(-2px); background: #7c3aed; color: #fff; }
+
+#acSpeak { background: linear-gradient(135deg, #22c55e, #10b981); color: #fff; border: none; }
+#acSpeak:hover { box-shadow: 0 8px 20px rgba(16, 185, 129, 0.4); }
+
+.ac-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #cbd5e1;
+  cursor: pointer;
+  user-select: none;
+}
+.ac-toggle input { accent-color: #7c3aed; width: 16px; height: 16px; }
+
+@media (max-width: 640px) {
+  .ac-text { font-size: 20px; }
+  .ac-chip { font-size: 17px; padding: 5px 12px; }
+}
