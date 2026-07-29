@@ -1,0 +1,23 @@
+services:
+  app:
+    build: { context: ., dockerfile: Dockerfile }
+    container_name: arsl-app
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - APP_ENV=production
+      - DEBUG=false
+      - MODEL_BACKEND=onnx
+      - PORT=8000
+    volumes:
+      - ./backend/models:/app/backend/models
+      - ./uploads:/app/uploads
+      - ./outputs:/app/outputs
+      - ./reports:/app/reports
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

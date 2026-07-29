@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: arabic-sign-language-ai
+    runtime: python
+    plan: free
+    region: frankfurt
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: MODEL_BACKEND
+        value: onnx
+      - key: ONNX_MODEL_PATH
+        value: backend/models/yolov26s.onnx
+      - key: MODEL_IMG_SIZE
+        value: "416"
+      - key: LOG_LEVEL
+        value: INFO
+      - key: PYTHON_VERSION
+        value: "3.11.9"

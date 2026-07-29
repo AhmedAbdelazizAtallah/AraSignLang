@@ -1,0 +1,17 @@
+# Requirements for the ONNX (low-RAM) deployment — Render-ready.
+# Excludes torch & ultralytics; inference runs via onnxruntime.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+jinja2==3.1.5
+pydantic==2.10.5
+pydantic-settings==2.7.1
+websockets==14.1
+onnxruntime==1.20.1
+opencv-python-headless==4.11.0.86
+numpy>=1.26,<2.3
+Pillow==11.1.0
+arabic-reshaper==3.0.0
+python-bidi==0.6.3
+reportlab==4.2.5
+python-dotenv==1.0.1

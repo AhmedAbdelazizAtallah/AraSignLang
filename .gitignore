@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+uploads/*
+outputs/*
+reports/*
+!**/README.md
+!**/.gitkeep
+backend/reports/logs/*.log
+.env
+frontend/fonts/*.ttf
+.DS_Store

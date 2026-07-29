@@ -1,0 +1,4 @@
+# OPTIONAL — only for MODEL_BACKEND=torch with the original .pt (local).
+ultralytics==8.3.70
+torch>=2.2
+torchvision>=0.17

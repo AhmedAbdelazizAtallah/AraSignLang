@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ app_name }} — Arabic Sign Language Recognition</title>
+  <meta name="description" content="Production-ready Arabic Sign Language recognition powered by YOLOv26s." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="/static/animations/animations.css" />
+  <link rel="icon" href="/static/assets/favicon.svg" type="image/svg+xml" />
+</head>
+<body>
+  <div class="bg-aurora"></div>
+  <canvas id="particles" class="bg-particles"></canvas>
+
+  <header class="app-header glass">
+    <div class="brand">
+      <div class="brand-logo"><i class="fa-solid fa-hands-asl-interpreting"></i></div>
+      <div class="brand-text">
+        <h1>{{ app_name }}</h1>
+        <span>YOLOv26s · Real-time Arabic Sign Recognition</span>
+      </div>
+    </div>
+
+    <nav class="tabs" id="tabs" role="tablist">
+      <button class="tab active" data-tab="camera"><i class="fa-solid fa-video"></i><span>Live Camera</span></button>
+      <button class="tab" data-tab="video"><i class="fa-solid fa-film"></i><span>Upload Video</span></button>
+      <button class="tab" data-tab="image"><i class="fa-solid fa-image"></i><span>Upload Image</span></button>
+      <button class="tab" data-tab="learn"><i class="fa-solid fa-graduation-cap"></i><span>Learning</span></button>
+      <span class="tab-indicator" id="tabIndicator"></span>
+    </nav>
+
+    <div class="header-meta">
+      <span id="deviceBadge" class="badge badge-cpu"><i class="fa-solid fa-microchip"></i> <b>CPU</b></span>
+      <button id="themeToggle" class="icon-btn" title="Toggle theme"><i class="fa-solid fa-moon"></i></button>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <!-- LIVE CAMERA -->
+    <section class="tab-panel active" id="panel-camera">
+      <div class="grid-2">
+        <div class="card glass camera-card">
+          <div class="card-head">
+            <h2><i class="fa-solid fa-video"></i> Live Camera</h2>
+            <div class="live-dot" id="recDot"><span></span> LIVE</div>
+          </div>
+          <div class="stage" id="cameraStage">
+            <video id="webcam" autoplay playsinline muted></video>
+            <canvas id="overlay"></canvas>
+            <div class="guide" id="guideBox" data-status="loading">
+              <span class="guide-corner tl"></span><span class="guide-corner tr"></span>
+              <span class="guide-corner bl"></span><span class="guide-corner br"></span>
+              <div class="guide-hint" id="guideHint">Camera loading…</div>
+            </div>
+            <div class="stage-overlay" id="camPlaceholder">
+              <i class="fa-solid fa-camera"></i>
+              <p>Camera is off</p>
+            </div>
+          </div>
+          <div class="controls">
+            <button id="startCam" class="btn btn-primary"><i class="fa-solid fa-play"></i> Start</button>
+            <button id="stopCam" class="btn btn-ghost" disabled><i class="fa-solid fa-stop"></i> Stop</button>
+            <div class="quality-pill" id="qualityPill"><span class="q-led"></span><span id="qualityText">Idle</span></div>
+          </div>
+          <div class="microstats">
+            <div><span id="statFps">0</span><small>FPS</small></div>
+            <div><span id="statLatency">0</span><small>ms</small></div>
+            <div><span id="statFrames">0</span><small>frames</small></div>
+            <div><span id="statConf">0%</span><small>conf</small></div>
+          </div>
+        </div>
+
+        <div class="stack">
+          <div class="card glass predict-card">
+            <div class="card-head"><h2><i class="fa-solid fa-language"></i> Prediction</h2></div>
+            <div class="current-letter" id="currentLetter" dir="rtl">—</div>
+            <div class="conf-bar"><div class="conf-fill" id="confFill"></div></div>
+            <div class="conf-label"><span id="confLabel">0.0%</span> confidence</div>
+            <div class="history-strip" id="historyStrip" dir="rtl"></div>
+          </div>
+
+          <div class="card glass builder-card" dir="rtl">
+            <div class="card-head" dir="ltr"><h2><i class="fa-solid fa-keyboard"></i> Sentence Builder</h2></div>
+            <textarea id="textBuffer" class="text-buffer" placeholder="النص المُولّد سيظهر هنا…"></textarea>
+            <div class="builder-actions" dir="ltr">
+              <button class="chip" data-act="space"><i class="fa-solid fa-arrows-left-right-to-line"></i> Space</button>
+              <button class="chip" data-act="delete"><i class="fa-solid fa-delete-left"></i> Delete</button>
+              <button class="chip" data-act="undo"><i class="fa-solid fa-rotate-left"></i> Undo</button>
+              <button class="chip" data-act="redo"><i class="fa-solid fa-rotate-right"></i> Redo</button>
+              <button class="chip" data-act="clear"><i class="fa-solid fa-trash"></i> Clear</button>
+              <button class="chip" data-act="copy"><i class="fa-solid fa-copy"></i> Copy</button>
+              <button class="chip" data-act="speak"><i class="fa-solid fa-volume-high"></i> Speak</button>
+            </div>
+            <div class="suggest-group">
+              <label>💡 Word suggestions</label>
+              <div class="suggest-list" id="wordSuggest" dir="rtl"></div>
+            </div>
+            <div class="suggest-group">
+              <label>🤖 Sentence suggestions</label>
+              <div class="suggest-list vertical" id="sentenceSuggest" dir="rtl"></div>
+            </div>
+            <div class="speech-bar" dir="ltr">
+              <button class="mini-btn" data-speech="play"><i class="fa-solid fa-play"></i></button>
+              <button class="mini-btn" data-speech="pause"><i class="fa-solid fa-pause"></i></button>
+              <button class="mini-btn" data-speech="resume"><i class="fa-solid fa-forward"></i></button>
+              <button class="mini-btn" data-speech="stop"><i class="fa-solid fa-stop"></i></button>
+              <input type="range" id="speechRate" min="0.5" max="1.6" step="0.1" value="1" title="Speed" />
+              <select id="voiceSelect" class="voice-select"></select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- UPLOAD VIDEO -->
+    <section class="tab-panel" id="panel-video">
+      <div class="grid-2">
+        <div class="card glass">
+          <div class="card-head"><h2><i class="fa-solid fa-film"></i> Video Analysis</h2></div>
+          <div class="dropzone" id="videoDrop">
+            <input type="file" id="videoInput" accept=".mp4,.mov,.avi,.mkv" hidden />
+            <i class="fa-solid fa-cloud-arrow-up"></i>
+            <p>Drag & drop a video or <span class="link">browse</span></p>
+            <small>mp4 · mov · avi · mkv</small>
+          </div>
+          <div class="stage" id="videoStage" hidden>
+            <video id="videoPlayer" controls></video>
+          </div>
+          <div class="progress-wrap" id="videoProgressWrap" hidden>
+            <div class="progress"><div class="progress-fill" id="videoProgress"></div></div>
+            <span id="videoProgressText">Analyzing… 0%</span>
+          </div>
+          <div class="controls" id="videoControls" hidden>
+            <button class="btn btn-ghost" data-vid="replay"><i class="fa-solid fa-rotate-left"></i> Replay</button>
+            <a class="btn btn-primary" id="downloadVideo" download><i class="fa-solid fa-download"></i> Download</a>
+            <button class="btn btn-ghost" id="exportVideoText"><i class="fa-solid fa-file-lines"></i> Export text</button>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="card glass">
+            <div class="card-head"><h2><i class="fa-solid fa-timeline"></i> Timeline</h2></div>
+            <div class="timeline" id="timeline"></div>
+          </div>
+          <div class="card glass" dir="rtl">
+            <div class="card-head" dir="ltr"><h2><i class="fa-solid fa-align-right"></i> Generated Text</h2></div>
+            <div class="result-text" id="videoText">—</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- UPLOAD IMAGE -->
+    <section class="tab-panel" id="panel-image">
+      <div class="grid-2">
+        <div class="card glass">
+          <div class="card-head"><h2><i class="fa-solid fa-image"></i> Image Analysis</h2></div>
+          <div class="dropzone" id="imageDrop">
+            <input type="file" id="imageInput" accept=".jpg,.jpeg,.png,.webp" hidden />
+            <i class="fa-solid fa-cloud-arrow-up"></i>
+            <p>Drag & drop an image or <span class="link">browse</span></p>
+            <small>jpg · jpeg · png · webp</small>
+          </div>
+          <div class="stage" id="imageStage" hidden>
+            <img id="imageResult" alt="annotated result" />
+          </div>
+          <div class="controls" id="imageControls" hidden>
+            <a class="btn btn-primary" id="downloadImage" download><i class="fa-solid fa-download"></i> Download annotated</a>
+          </div>
+        </div>
+        <div class="card glass predict-card">
+          <div class="card-head"><h2><i class="fa-solid fa-language"></i> Result</h2></div>
+          <div class="current-letter" id="imageLetter" dir="rtl">—</div>
+          <div class="conf-bar"><div class="conf-fill" id="imageConfFill"></div></div>
+          <div class="conf-label"><span id="imageConfLabel">0.0%</span> confidence</div>
+          <div class="kv"><span>Latency</span><b id="imageLatency">—</b></div>
+          <div class="kv"><span>Device</span><b id="imageDevice">—</b></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- LEARNING -->
+    <section class="tab-panel" id="panel-learn">
+      <div class="grid-2">
+        <div class="card glass camera-card">
+          <div class="card-head"><h2><i class="fa-solid fa-graduation-cap"></i> Learning Mode</h2></div>
+          <div class="target-letter">
+            <small>اعرض الحرف</small>
+            <div id="targetLetter" dir="rtl">ب</div>
+          </div>
+          <div class="stage" id="learnStage">
+            <video id="learnWebcam" autoplay playsinline muted></video>
+            <canvas id="learnOverlay"></canvas>
+          </div>
+          <div class="controls">
+            <button id="startLearn" class="btn btn-primary"><i class="fa-solid fa-play"></i> Start</button>
+            <button id="nextLetter" class="btn btn-ghost"><i class="fa-solid fa-forward-step"></i> Next letter</button>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="card glass">
+            <div class="card-head"><h2><i class="fa-solid fa-trophy"></i> Progress</h2></div>
+            <div class="learn-verdict" id="learnVerdict">—</div>
+            <div class="kv"><span>Confidence</span><b id="learnConf">0%</b></div>
+            <div class="kv"><span>Attempts</span><b id="learnAttempts">0</b></div>
+            <div class="kv"><span>Score</span><b id="learnScore">0</b></div>
+            <div class="progress"><div class="progress-fill" id="learnProgress"></div></div>
+            <div class="conf-label"><span id="learnPct">0%</span> completion</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ANALYTICS -->
+    <section class="analytics">
+      <div class="section-title"><i class="fa-solid fa-chart-line"></i><h2>Analytics Dashboard</h2></div>
+      <div class="stat-grid" id="statGrid">
+        <div class="stat glass"><i class="fa-solid fa-layer-group"></i><b id="aFrames">0</b><small>Frames</small></div>
+        <div class="stat glass"><i class="fa-solid fa-gauge-high"></i><b id="aFps">0</b><small>Avg FPS</small></div>
+        <div class="stat glass"><i class="fa-solid fa-bullseye"></i><b id="aConf">0%</b><small>Avg Conf</small></div>
+        <div class="stat glass"><i class="fa-solid fa-clock"></i><b id="aLatency">0</b><small>Latency ms</small></div>
+        <div class="stat glass"><i class="fa-solid fa-font"></i><b id="aLetters">0</b><small>Letters</small></div>
+        <div class="stat glass"><i class="fa-solid fa-spell-check"></i><b id="aWords">0</b><small>Words</small></div>
+        <div class="stat glass"><i class="fa-solid fa-hourglass-half"></i><b id="aDuration">0s</b><small>Session</small></div>
+        <div class="stat glass"><i class="fa-solid fa-microchip"></i><b id="aDevice">CPU</b><small>Device</small></div>
+      </div>
+      <div class="grid-2 charts">
+        <div class="card glass"><div class="card-head"><h2>Confidence over time</h2></div><canvas id="chartConf"></canvas></div>
+        <div class="card glass"><div class="card-head"><h2>FPS</h2></div><canvas id="chartFps"></canvas></div>
+        <div class="card glass"><div class="card-head"><h2>Letters distribution</h2></div><canvas id="chartLetters"></canvas></div>
+        <div class="card glass"><div class="card-head"><h2>Latency</h2></div><canvas id="chartLatency"></canvas></div>
+      </div>
+    </section>
+
+    <!-- EXPORT + HISTORY -->
+    <section class="grid-2">
+      <div class="card glass">
+        <div class="card-head"><h2><i class="fa-solid fa-file-export"></i> Export Report</h2></div>
+        <div class="export-grid">
+          <button class="btn btn-ghost" data-export="txt"><i class="fa-solid fa-file-lines"></i> TXT</button>
+          <button class="btn btn-ghost" data-export="csv"><i class="fa-solid fa-file-csv"></i> CSV</button>
+          <button class="btn btn-ghost" data-export="json"><i class="fa-solid fa-file-code"></i> JSON</button>
+          <button class="btn btn-primary" data-export="pdf"><i class="fa-solid fa-file-pdf"></i> PDF Report</button>
+        </div>
+      </div>
+      <div class="card glass">
+        <div class="card-head"><h2><i class="fa-solid fa-clock-rotate-left"></i> Session History</h2></div>
+        <div class="history-list" id="sessionHistory"><p class="muted">No sessions yet.</p></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <span>Built with FastAPI · WebSockets · OpenCV · ONNX Runtime · Guide: {{ img_size }}×{{ img_size }}</span>
+  </footer>
+
+  <div class="toast-wrap" id="toasts"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>
